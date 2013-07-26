@@ -88,17 +88,29 @@
         crossDomain = elCrossDomain === undefined ? null : elCrossDomain;
         withCredentials = element.data('with-credentials') || null;
         dataType = element.data('type') || ($.ajaxSettings && $.ajaxSettings.dataType);
-
+        processData = true;
+        contentType = null;
         if (element.is('form')) {
           method = element.attr('method');
           url = element.attr('action');
-          data = element.serializeArray();
-          // memoized value from clicked submit button
+          use_formdata = method == "post" && window.FormData;
+          if (use_formdata) {
+            data = new FormData(element[0]);
+            processData = false;
+            contentType = false;
+          } else {
+            data = element.serializeArray();
+          }
           var button = element.data('ujs:submit-button');
           if (button) {
-            data.push(button);
+            if (use_formdata) {
+              data.append(button['name'], button['value']);
+            } else {
+              data.push(button);
+            }
             element.data('ujs:submit-button', null);
           }
+          // memoized value from clicked submit button
         } else if (element.is(rails.inputChangeSelector)) {
           method = element.data('method');
           url = element.data('url');
@@ -133,7 +145,16 @@
           error: function(xhr, status, error) {
             element.trigger('ajax:error', [xhr, status, error]);
           },
-          crossDomain: crossDomain
+          xhr: function() {
+            xhr = $.ajaxSettings.xhr();
+            if (xhr.upload) {
+              xhr.upload.addEventListener('progress', function (progress) { element.trigger("ajax:progress", progress); }, false);
+            }
+            return xhr;
+          },
+          crossDomain: crossDomain,
+          processData: processData,
+          contentType: contentType
         };
 
         // There is no withCredentials for IE6-8 when
@@ -346,12 +367,13 @@
           // slight timeout so that the submit button gets properly serialized
           // (make it easy for event handler to serialize form without disabled values)
           setTimeout(function(){ rails.disableFormElements(form); }, 13);
-          var aborted = rails.fire(form, 'ajax:aborted:file', [nonBlankFileInputs]);
+          var ok = rails.fire(form, 'ajax:filedata', [nonBlankFileInputs]);
 
-          // re-enable form elements if event bindings return false (canceling normal form submission)
-          if (!aborted) { setTimeout(function(){ rails.enableFormElements(form); }, 13); }
-
-          return aborted;
+          // re-enable form elements if event bindings return false
+          if (!ok) { 
+              setTimeout(function(){ rails.enableFormElements(form); }, 13); 
+              return false;
+          }
         }
 
         rails.handleRemote(form);
